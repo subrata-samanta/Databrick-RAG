@@ -17,7 +17,55 @@ Key features:
 
 The RAG pipeline consists of the following key components:
 
-![RAG Pipeline Architecture](https://mermaid.ink/img/pako:eNqNVMtu2zAQ_BVixwadQFCSJE37ZDutgbgJkKRojwsPJa1kotIjJBXVMPzvXVKylDqF2qMo7nJ2OLsz-8ZF6bCIG3y8Y_i46NPGlgpdUy2oBehHMGtYdB3MtHyu0BrfQOtnWJVoTXJrFtqXJekJlu8kFKa9KS6ms9n1KjNPy8fV_TJZ5_WPoXnnzFJ-YDJLJ9PrOUQvDt6-YA-bUv8PyCxz3qENXmOJmTNNGTpYgb8z4FqzLsiKjz26BpZYQlAkGyhrRZ7eKimEI_AxynE4izLuAfsM5vTW-mVJjaSPQdA7S5c71HnmS0JoW0XxEE61sOx97DSe3IqmC1NQLQ0CggNoIvdrLLCSrIcqSovPqOGFAO_8lo8tQFtcmnXe1EXbbSvOukaIBgbyS_AM2qJDIFMpa8UV4qMlTAoBUgn-DoC7WgAgINgdH7UEnYn0FK4e_hZ_kJ4QkCbv9WypYFPM4jVPjn3nfzSQhxYaQxqnGIWmABq5UA4riHCjg_qOXHFxzosMdMiFmvgjxJN_oclHjK6TS4jx-YsZR6chna-tMlRr_H4mRjnKv0U7W8L0B2xpdYLLiNgcLsKWYNyoFnNuF6GOJiepkK1AKE1kB2dj4TBRxiVxLbo4L_wAJc52lZxE6MquB75IAEbtQNXrQe3iuFQ1rUGbewQSD5uQb-7j8vb9u5Ohw-5O_M94KeDCa5GB1Pvt4vRUQeNQOnLkt-grnlmcNkTtQZJR8cbFsBM7RAoaAneOBuCTs1TFv1wcG_J_Gl5k0XtqI8gYhQD1Gi3_MJsqju-XVXAeSJc3qFwcG0Vgf9twTkFTdOXBQwfWvHBxIxrSNK6vGZTdRXlzGFyMTtNywY2zpah-dr9D3bpprfdjmAcaF2Clw9fi-JzqG7XZ-DWSvBkZO0vnNM71jAhRT-RNcTrcag38d-6D49lKhfBQD2gtMq_7rvcw5o5eWlHS16NZvKOuJTBv3Im5-QtGFlRW)
+```mermaid
+graph TD
+    User([User]) --> |Query| Agent
+
+    subgraph "Data Layer"
+        DataGen[Data Generator] --> |Creates| Documents[(Documents)]
+        DataGen --> |Creates| StructData[(Structured Data)]
+        Documents --> |Stored in| Volumes[(Databricks Volumes)]
+        Volumes --> |Processed by| ETL[ETL Job]
+        Documents --> |Chunked| Chunks[Document Chunks]
+        Chunks --> |Embedded| VectorDB[(Vector DB)]
+    end
+
+    subgraph "Model Layer"
+        VectorDB --> |Retrieved by| Retriever[Vector Retriever]
+        MLflow[(MLflow Registry)] --> |Serves| LLM[LLM Models]
+        UnityC[Unity Catalog] --> |Manages| MLflow
+    end
+
+    subgraph "Agent Layer"
+        Retriever --> |Documents| RAGChain[RAG Chain]
+        StructData --> |Queries| SQLAgent[SQL Agent w/ Genie]
+        RAGChain --> |Combined in| Agent[Unified Agent]
+        SQLAgent --> |Combined in| Agent
+        LLM --> |Powers| RAGChain
+        LLM --> |Powers| SQLAgent
+        LLM --> |Powers| Agent
+    end
+
+    subgraph "Infrastructure Layer"
+        Agent --> |Served via| Endpoint[Mosaic AI Endpoint]
+        Endpoint --> |Managed by| Gateway[AI Gateway]
+        Gateway --> |Logs to| InferenceTable[(Inference Tables)]
+        InferenceTable --> |Monitored by| Monitoring[Lakehouse Monitoring]
+        Monitoring --> |Visualized in| Dashboard[Dashboards]
+    end
+
+    User --> |Receives Answer| Agent
+
+    class DataGen,ETL,Volumes,Documents,StructData,Chunks,VectorDB data
+    class MLflow,LLM,UnityC,Retriever model
+    class RAGChain,SQLAgent,Agent agent
+    class Endpoint,Gateway,InferenceTable,Monitoring,Dashboard infra
+    
+    classDef data fill:#e1f5fe,stroke:#01579b
+    classDef model fill:#e8f5e9,stroke:#2e7d32
+    classDef agent fill:#fff8e1,stroke:#ff8f00
+    classDef infra fill:#fce4ec,stroke:#c2185b
+```
 
 1. **Data Layer**: Handles synthetic data generation, storage in volumes, and vector embedding creation.
 2. **Model Layer**: Manages model registration, vector search, and LLM serving.
