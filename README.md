@@ -160,7 +160,7 @@ graph TD
 
 1. Clone this repository to your local machine or Databricks workspace:
    ```bash
-   git clone https://github.com/yourusername/databricks-rag.git
+   git clone https://github.com/subrata-samanta/databricks-rag.git
    ```
 
 2. Upload the code to your Databricks workspace or mount it to your cluster.
