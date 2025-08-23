@@ -19,7 +19,11 @@ from endpoints.ai_gateway import AIGateway
 from rag.vector_store import VectorStoreManager
 from rag.rag_chain import RAGChainManager
 from rag.sql_agent import SQLAgentManager
+from rag.query_rewriter import QueryRewriter
+from rag.reranker import Reranker
 from agents.unified_agent import UnifiedAgent
+from agents.guardrails import NeMoGuardrails
+from agents.session_manager import SessionManager
 from monitoring.lakehouse_monitor import LakehouseMonitoring
 from monitoring.dashboard import DashboardManager
 from monitoring.inference_logger import InferenceLogger
@@ -70,6 +74,10 @@ class RAGPipeline:
         self.error_handler = None
         self.inference_table = None
         self.inference_logger = None
+        self.query_rewriter = None
+        self.reranker = None
+        self.guardrails = None
+        self.session_manager = None
     
     def generate_data(self):
         """Generate synthetic data and save to storage"""
@@ -127,6 +135,27 @@ class RAGPipeline:
         
         logger.info(f"Mosaic AI endpoint set up: {self.endpoint_name}")
     
+    def setup_advanced_rag_components(self):
+        """Set up advanced RAG components like query rewriter and reranker"""
+        logger.info("Setting up advanced RAG components")
+        
+        # Initialize LLM if not already done
+        llm = self.llm_manager.get_llm()
+        
+        # Set up query rewriter
+        self.query_rewriter = QueryRewriter(self.config, llm)
+        
+        # Set up reranker
+        self.reranker = Reranker(self.config, self.spark)
+        
+        # Set up guardrails
+        self.guardrails = NeMoGuardrails(self.config)
+        
+        # Initialize session manager
+        self.session_manager = SessionManager(self)
+        
+        logger.info("Advanced RAG components set up successfully")
+    
     def setup_agents(self):
         """Set up RAG chain, SQL agent, and unified agent"""
         logger.info("Setting up agents")
@@ -134,11 +163,14 @@ class RAGPipeline:
         # Initialize LLM
         llm = self.llm_manager.initialize_llm()
         
+        # Set up advanced RAG components first
+        self.setup_advanced_rag_components()
+        
         # Set up vector store retriever
         self.retriever = self.vector_store_manager.setup_vector_store()
         
-        # Create RAG chain
-        rag_chain_manager = RAGChainManager(self.config, self.retriever)
+        # Create RAG chain with reranker integration
+        rag_chain_manager = RAGChainManager(self.config, self.retriever, self.reranker)
         self.rag_chain = rag_chain_manager.create_rag_chain()
         
         # Create SQL agent
@@ -210,7 +242,7 @@ class RAGPipeline:
             # Apply optimizations
             self.apply_optimizations()
             
-            # Set up agents
+            # Set up agents (including advanced RAG components)
             self.setup_agents()
             
             # Set up monitoring
@@ -226,12 +258,13 @@ class RAGPipeline:
             logger.error(f"Error setting up RAG pipeline: {str(e)}")
             return False
     
-    def ask(self, query):
+    def ask(self, query, session_id=None):
         """
         Ask a question to the agent
         
         Args:
             query: Question to ask
+            session_id: Optional session ID for stateful conversations
             
         Returns:
             Agent response
@@ -239,8 +272,41 @@ class RAGPipeline:
         if not self.unified_agent or not self.agent:
             raise Exception("Pipeline not initialized. Call run() first.")
         
+        # If session_id is provided, use the session manager
+        if session_id and self.session_manager:
+            return self.session_manager.ask(session_id, query)
+        
+        # Process the query with query rewriter if available
+        if self.query_rewriter:
+            rewrite_result = self.query_rewriter.rewrite_query(query)
+            effective_query = rewrite_result["rewritten_query"]
+        else:
+            effective_query = query
+        
+        # Check input with guardrails if available
+        if self.guardrails:
+            input_safe, input_results = self.guardrails.check_input(effective_query)
+            
+            if not input_safe:
+                return {
+                    "status": "blocked",
+                    "response": "I'm sorry, I cannot respond to that query as it violates content policies.",
+                    "query": query,
+                    "guardrail_results": input_results
+                }
+        
         # Use error handler for enhanced query processing
-        return self.error_handler.enhanced_ask_agent(query)
+        response = self.error_handler.enhanced_ask_agent(effective_query)
+        
+        # Apply guardrails to response if available
+        if self.guardrails and 'response' in response:
+            guardrail_results = self.guardrails.apply_guardrails(
+                query, response["response"]
+            )
+            response["response"] = guardrail_results["safe_response"]
+            response["guardrail_results"] = guardrail_results
+        
+        return response
 
 if __name__ == "__main__":
     # Get environment from environment variable or use default
@@ -251,11 +317,22 @@ if __name__ == "__main__":
     success = pipeline.run()
     
     if success:
-        # Test with sample query
+        # Create a session
+        session_manager = pipeline.session_manager
+        session_id = session_manager.create_session(user_id="demo_user")
+        
+        # Test with sample query in the session
         print("\nTesting RAG pipeline with sample query:")
-        response = pipeline.ask("What information do we have about Machine Learning?")
+        response = session_manager.ask(session_id, "What information do we have about Machine Learning?")
         print(f"Query: {response['query']}")
         print(f"Response: {response['response']}")
         print(f"Latency: {response['latency_ms']} ms")
+        
+        # Test follow-up
+        print("\nTesting follow-up question:")
+        follow_up = session_manager.ask(session_id, "Can you summarize the key concepts?")
+        print(f"Query: {follow_up['query']}")
+        print(f"Response: {follow_up['response']}")
+        print(f"Latency: {follow_up['latency_ms']} ms")
     else:
         print("Failed to set up RAG pipeline")

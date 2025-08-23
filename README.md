@@ -12,6 +12,9 @@ Key features:
 - Comprehensive monitoring and observability
 - Optimized for both performance and cost
 - Modular architecture for easy maintenance and extension
+- Advanced RAG features including query rewriting and reranking
+- NeMo Guardrails for security and responsible AI
+- Multi-user support with session management
 
 ## 🏛️ Architecture
 
@@ -19,8 +22,10 @@ The RAG pipeline consists of the following key components:
 
 ```mermaid
 graph TD
-    User([User]) --> |Query| Agent
-
+    User([User]) --> |Query| SessionManager[Session Manager]
+    SessionManager --> |Authenticated Query| QueryRewriter[Query Rewriter]
+    QueryRewriter --> |Enhanced Query| Agent
+    
     subgraph "Data Layer"
         DataGen[Data Generator] --> |Creates| Documents[(Documents)]
         DataGen --> |Creates| StructData[(Structured Data)]
@@ -32,21 +37,26 @@ graph TD
 
     subgraph "Model Layer"
         VectorDB --> |Retrieved by| Retriever[Vector Retriever]
+        Retriever --> |Candidate Docs| Reranker[Reranker]
         MLflow[(MLflow Registry)] --> |Serves| LLM[LLM Models]
         UnityC[Unity Catalog] --> |Manages| MLflow
     end
 
     subgraph "Agent Layer"
-        Retriever --> |Documents| RAGChain[RAG Chain]
+        Reranker --> |Ranked Docs| RAGChain[RAG Chain]
         StructData --> |Queries| SQLAgent[SQL Agent w/ Genie]
         RAGChain --> |Combined in| Agent[Unified Agent]
         SQLAgent --> |Combined in| Agent
         LLM --> |Powers| RAGChain
         LLM --> |Powers| SQLAgent
         LLM --> |Powers| Agent
+        LLM --> |Powers| QueryRewriter
+        GuardRails[NeMo GuardRails] --> |Safeguards| Agent
+        GuardRails --> |Safeguards| RAGChain
     end
 
     subgraph "Infrastructure Layer"
+        Agent --> |Response| SessionManager
         Agent --> |Served via| Endpoint[Mosaic AI Endpoint]
         Endpoint --> |Managed by| Gateway[AI Gateway]
         Gateway --> |Logs to| InferenceTable[(Inference Tables)]
@@ -54,12 +64,12 @@ graph TD
         Monitoring --> |Visualized in| Dashboard[Dashboards]
     end
 
-    User --> |Receives Answer| Agent
+    SessionManager --> |Returns Answer| User
 
     class DataGen,ETL,Volumes,Documents,StructData,Chunks,VectorDB data
-    class MLflow,LLM,UnityC,Retriever model
-    class RAGChain,SQLAgent,Agent agent
-    class Endpoint,Gateway,InferenceTable,Monitoring,Dashboard infra
+    class MLflow,LLM,UnityC,Retriever,Reranker model
+    class RAGChain,SQLAgent,Agent,GuardRails,QueryRewriter agent
+    class Endpoint,Gateway,InferenceTable,Monitoring,Dashboard,SessionManager infra
     
     classDef data fill:#e1f5fe,stroke:#01579b
     classDef model fill:#e8f5e9,stroke:#2e7d32
@@ -110,6 +120,34 @@ graph TD
 - Caching mechanisms
 - Latency optimization
 - Cost management
+
+### Advanced RAG Components
+
+#### Query Rewriter
+- Rephrases and expands user queries for better retrieval
+- Extracts key concepts and entities from queries
+- Generates multiple query variations to improve recall
+- Adapts queries based on conversation context
+
+#### Reranker
+- Cross-encoder model that reranks retrieved documents
+- Considers semantic relevance beyond vector similarity
+- Improves precision of document retrieval
+- Configurable scoring and ranking algorithms
+
+#### NeMo Guardrails
+- Content filtering for responsible AI
+- Topic boundaries and jailbreak prevention
+- Input/output validation and sanitization
+- Configurable policies for different use cases
+- Audit logging of safety interventions
+
+#### Session Management
+- Support for multiple concurrent users
+- Conversation history tracking per session
+- User authentication and authorization
+- Context preservation across interactions
+- Customizable session expiration and cleanup
 
 ## 🚀 Getting Started
 
@@ -182,6 +220,34 @@ Import the notebook `notebook.ipynb` into your Databricks workspace and run the 
 4. Deploy the model and endpoint
 5. Test the agent with various queries
 
+### Session-Based Usage
+
+```python
+from main import RAGPipeline, SessionManager
+
+# Initialize the pipeline
+pipeline = RAGPipeline(environment="dev")
+pipeline.run()
+
+# Create a session manager
+session_manager = SessionManager(pipeline)
+
+# Create sessions for different users
+session_id_1 = session_manager.create_session(user_id="user1@example.com")
+session_id_2 = session_manager.create_session(user_id="user2@example.com")
+
+# Ask questions in specific sessions
+response1 = session_manager.ask(session_id_1, "What information do we have about Machine Learning?")
+print(f"User 1 response: {response1['response']}")
+
+response2 = session_manager.ask(session_id_2, "How many customers do we have in each region?")
+print(f"User 2 response: {response2['response']}")
+
+# Follow-up questions preserve context within the session
+follow_up1 = session_manager.ask(session_id_1, "Can you summarize the key concepts?")
+print(f"User 1 follow-up: {follow_up1['response']}")
+```
+
 ## 📂 Project Structure
 
 ```
@@ -207,10 +273,14 @@ databricks_rag/
 │   ├── __init__.py
 │   ├── vector_store.py      # Vector store setup
 │   ├── rag_chain.py         # RAG chain implementation
-│   └── sql_agent.py         # SQL agent with text-to-SQL
+│   ├── sql_agent.py         # SQL agent with text-to-SQL
+│   ├── query_rewriter.py    # Query rewriting functionality
+│   └── reranker.py          # Document reranking component
 ├── agents/
 │   ├── __init__.py
-│   └── unified_agent.py     # Unified agent framework
+│   ├── unified_agent.py     # Unified agent framework
+│   ├── guardrails.py        # NeMo Guardrails integration
+│   └── session_manager.py   # Session management for multi-user support
 ├── monitoring/
 │   ├── __init__.py
 │   ├── inference_logger.py  # Inference logging
@@ -254,6 +324,9 @@ databricks_rag/
 - Error rates
 - Cache hit rates
 - Retrieval quality
+- Query rewriting effectiveness
+- Guardrail intervention rates
+- Active sessions and users
 
 ### Dashboard Overview
 The provided dashboards give visibility into:
@@ -268,6 +341,9 @@ The provided dashboards give visibility into:
 - Tune embedding chunk size for your specific use case
 - Use caching in dev/qa environments but consider freshness in production
 - Monitor token usage to optimize costs
+- Adjust reranker thresholds based on precision vs. recall needs
+- Optimize query rewriter for your specific domain vocabulary
+- Configure session timeouts based on usage patterns
 
 ## 🤝 Contributing
 
